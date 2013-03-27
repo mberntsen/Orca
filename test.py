@@ -14,11 +14,14 @@ import numpy as np
 import cv2
 from priodict import priorityDictionary
 import dijkstra
+import math
 
 def main():
   """Processes commandline input to setup the demo."""
   import optparse
   import sys
+  
+
   parser = optparse.OptionParser()
   parser.add_option('-c', '--controller', default='NewController',
                     help='Controller class to instantiate.')
@@ -83,80 +86,72 @@ def main():
   par1 = 1500
   par2 = 5
 
+  print cv2.__version__
+
   while True:  
-    ret, im = cap.read()
-    hsv = cv2.cvtColor(im,cv2.COLOR_BGR2HSV)
+    ret, img = cap.read()
+    hsv = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
     [h,s,v] = cv2.split(hsv)
-    #ret,th1 = cv2.threshold(h,threshold1,255,cv2.THRESH_BINARY_INV)
-    #ret,th2 = cv2.threshold(h,threshold2,255,cv2.THRESH_BINARY)
-    ret,th3 = cv2.threshold(v,threshold3,255,cv2.THRESH_BINARY)
-    #m1 = cv2.multiply(th1,th2)
-    #m2 = cv2.multiply(m1,th3)
-  
-    m2 = cv2.medianBlur(th3,5)
-    #m2 = cv2.blur(m2,(5, 5))
-    edges = cv2.Canny(m2,150,300)
-    cimg = cv2.cvtColor(edges,cv2.COLOR_GRAY2BGR)
-    circles = cv2.HoughCircles(edges,cv2.cv.CV_HOUGH_GRADIENT,1,70,param1=par1,param2=par2,minRadius=31,maxRadius=33)
-    if circles is not None:
-      #print circles   
-      circles = np.uint16(np.around(circles))
-      for i in circles[0,:]:
-        cv2.circle(cimg,(i[0],i[1]),i[2],(255,0,0),1)  # draw the outer circle
-        #cv2.circle(cimg,(i[0],i[1]),2,(0,0,255),3)     # draw the center of the circle 
-    cv2.imshow('Circles', cimg)
-    #cv2.imshow('edges', edges)
-    #cv2.imshow('m1', m1)
-    #cv2.imshow('m2', m2)
-    #cv2.imshow('th1', th1)
-    #cv2.imshow('th2', th2)
-    #cv2.imshow('th3', th3)
-    #cv2.imshow('h', h)
-    #cv2.imshow('s', s)
-    #cv2.imshow('v', v)
-    #cv2.imshow('im', im)
-    key = cv2.waitKey(50)
+    #ret,th3 = cv2.threshold(v,threshold3,255,cv2.THRESH_BINARY)
+    #m2 = cv2.medianBlur(th3,5)
+    #edges = cv2.Canny(m2,150,300)
+    
+    #img2 = m2.copy()
+    #img2 = edges.copy()
+    #m2 = cv2.medianBlur(edges,5)
+    img2 = cv2.blur(v,(5,5))
+    #img2 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    #img2 = v.copy()
+
+    detector = cv2.FeatureDetector_create('MSER')
+    fs = detector.detect(img2)
+    fs.sort(key = lambda x: -x.size)
+
+    def supress(x):
+      for f in fs:
+        distx = f.pt[0] - x.pt[0]
+        disty = f.pt[1] - x.pt[1]
+        dist = math.sqrt(distx*distx + disty*disty)
+        if (f.size > x.size) and (dist<f.size/2):
+          return True
+
+    sfs = [x for x in fs if not supress(x)]
+
+    for f in sfs:
+      cv2.circle(img, (int(f.pt[0]), int(f.pt[1])), int(f.size/2), (255,0,0), 2, cv2.CV_AA)
+      cv2.circle(img, (int(f.pt[0]), int(f.pt[1])), int(f.size/2), (0,255,0), 1, cv2.CV_AA)
+
+    h, w = img.shape[:2]
+    vis = np.zeros((h, w*2+5), np.uint8)
+    vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
+    img3 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
+    vis[:h, :w] = img3
+    vis[:h, w+5:w*2+5] = img
+
+    cv2.imshow("image", vis)
+    #cv2.imshow("v", img2)
+    key = cv2.waitKey(1)
     #print key
-    if key == 1048603: #Esc
+    if key == 27: #Esc
       break
-    if key == 1048679: #g
-      enabletouching = True
-    if key == 1048680: #h
-      enabletouching = False
-    if enabletouching and (cycle == 5):
-      for i in circles[0,:]:
-        print 'px=%d py=%d' % (i[0], i[1])
-        nx = -200 + ((i[0] - 321) * 0.0472)
-        ny = 30 + ((358 - i[1]) * 0.0450)
+    if key == 122: #z
+      x0 = int(sfs[0].pt[0])
+      y0 = int(sfs[0].pt[1])
+      print 'x0 = %4d, y0 = %4d' % (x0, y0)
+    if key == 103: #g
+      for f in sfs:
+        print 'px = %4d py = %4d' % (f.pt[0], f.pt[1])
+        nx = -200 + ((f.pt[0] - x0) * 0.0472)
+        ny = 30 + ((y0 - f.pt[1]) * 0.0450)
         if (ny < 45) and (ny > 25) and (nx < -185) and (nx > -215):
           p3 = G1203AController.ORCAPosition(nx, ny, 0, -90, -180, p1.grip, '')
           #print p3
           G1203A._Goto(p3)
-          #time.sleep(0.5)
           while G1203A._IsBusy():
             time.sleep(0.25) 
       G1203A._Goto(p2)
       while G1203A._IsBusy():
         time.sleep(0.25)
-    if key == 1048689:
-      par1 = par1 + 50
-    if key == 1048673:
-      if par1 > 50:
-        par1 = par1 - 50
-    if key == 1048695:
-      par2 = par2 + 1
-    if key == 1048691:
-      if par2 > 1:
-        par2 = par2 - 1
-    if key == 1048677:
-      threshold3 = threshold3 + 10
-    if key == 1048676:
-      threshold3 = threshold3 - 10
-    if key != -1:
-      print 'threshold = %d, par1 = %d par2 = %d' % (threshold3, par1, par2)
-    cycle = cycle + 1
-    if cycle > 5:
-      cycle = 0
 
   cv2.destroyAllWindows() 
   cv2.VideoCapture(0).release()
