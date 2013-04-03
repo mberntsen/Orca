@@ -11,18 +11,22 @@ __version__ = '0.1'
 import GPIBInterface
 from collections import namedtuple
 import re
+import sys
+import time
 
 ORCAPosition = namedtuple('ORCAPosition', 'rail reach height bend twist grip side')
 ORCAErrorItem = namedtuple('ORCAErrorItem', 'errorno description')
 ORCASPollResult = namedtuple('ORCASPollResult', 'busy auto bit2 teachenter uninitialized error bit6 bit7')
+ORCAForce = namedtuple('ORCAForce', 'twist grip')
 
 class G1203AController:
   """Base class for a Lightbox controller."""
   GPIBADDRESS = 2
   
-  def __init__(self, interface, **kwds):
+  def __init__(self, address, interface, **kwds):
     """Initializes the BaseController for Lightbox."""
     self.interface = interface
+    self.address = address
   #  super(BaseController, self).__init__()
 
   # ############################################################################
@@ -38,74 +42,187 @@ class G1203AController:
     return {'GPIB Address': self.GPIBADDRESS}
 
   def _StartUp(self):
-    self.interface.Output(2, 'SU')
+    self.interface.Output(self.address, 'SU')
     #print 'ORCA startup'
 
   def _ShutDown(self):
-    self.interface.Output(2, 'SD')
+    self.interface.Output(self.address, 'SD')
     #print 'ORCA shutdown'
   
   def _EnableTeach(self):
-    self.interface.Output(2, 'ET')
+    self.interface.Output(self.address, 'ET')
     #print 'ORCA teachpendant enabled'
 
   def _DisableTeach(self):
-    self.interface.Output(2, 'DT')
+    self.interface.Output(self.address, 'DT')
     #print 'ORCA teachpendant disabled'
 
   def _EnableCalibration(self):
-    self.interface.Output(2, 'EC')
+    self.interface.Output(self.address, 'EC')
+    
+  def _FinishCalibration(self):
+    self.interface.Output(self.address, 'FC')
     
   def _LocateOnA(self):
-    self.interface.Output(2, 'LO 0')
+    self.interface.Output(self.address, 'LO 0')
     #print 'ORCA locating on A...'
 
   def _LocateOnB(self):
-    self.interface.Output(2, 'LO 1')
+    self.interface.Output(self.address, 'LO 1')
     #print 'ORCA locating on B...'
 
   def _OutputError(self):
-    self.interface.Output(2, 'OE')
+    self.interface.Output(self.address, 'OE')
     errorlist = []
     re_float = re.compile('^(\d+) (.+)$')
     #while True:
-    error = self.interface.Enter(2)
-    print 'len=%d, e=%s' % (len(error), error)
-      
+    error = self.interface.Enter(self.address)
       #if len(error) == 0:
       #  break;
+    #print 'len=%d, e=%s' % (len(error), error)
     esplit = re_float.match(error)
-    errorlist.append(ORCAErrorItem(int(esplit.group(1)), esplit.group(2)))
+    #if esplit != None:
+    #  errorlist.append(ORCAErrorItem(int(esplit.group(1)), esplit.group(2)))
       #if int(esplit.group(1)) == 0:
       #  break
-    return errorlist
+    #self.interface.Enter(self.address)
+    return ORCAErrorItem(int(esplit.group(1)), esplit.group(2))
+
+  def _OutputTracebuffer(self):
+    self.interface.Output(self.address, 'OT')
+    tracebuffer = ''
+    while True:
+      ret = self.interface.Enter(self.address)
+      if len(ret) == 0:
+        break
+      tracebuffer += ret
+    return tracebuffer
+
+  def _OutputPrintbuffer(self):
+    self.interface.Output(self.address, 'OP')
+    tracebuffer = ''
+    while True:
+      ret = self.interface.Enter(self.address)
+      if len(ret) == 0:
+        break
+      tracebuffer += ret
+    return tracebuffer
+
+  def _OX(self):
+    self.interface.Output(self.address, 'OX')
+    tracebuffer = ''
+    while True:
+      ret = self.interface.Enter(self.address)
+      if len(ret) == 0:
+        break
+      tracebuffer += ret
+    return tracebuffer
+
+  def _OutputStatus(self):
+    self.interface.Output(self.address, 'OS')
+    time.sleep(.050)
+    pos = self.interface.Enter(self.address).split()
+    return pos
 
   def _RequestActualPosition(self):
-    self.interface.Output(2, 'RA')
-    pos = self.interface.Enter(2).split()
+    self.interface.Output(self.address, 'RA')
+    pos = self.interface.Enter(self.address).split()
     return ORCAPosition(float(pos[0]), float(pos[1]), float(pos[2]), float(pos[3]), float(pos[4]), float(pos[5]), pos[6])
+  
+  def _RequestTeachPosition(self):
+    self.interface.Output(self.address, 'RT')
+    pos = self.interface.Enter(self.address).split()
+    return ORCAPosition(float(pos[0]), float(pos[1]), float(pos[2]), float(pos[3]), float(pos[4]), float(pos[5]), '')
+  
+  def _RequestForce(self):
+    self.interface.Output(self.address, 'RF')
+    pos = self.interface.Enter(self.address).split()
+    return ORCAForce(int(pos[0]), int(pos[1]))
 
   def _RequestPosition(self):
-    self.interface.Output(2, 'RP')
-    pos = self.interface.Enter(2).split()
+    self.interface.Output(self.address, 'RP')
+    pos = self.interface.Enter(self.address).split()
     return ORCAPosition(float(pos[0]), float(pos[1]), float(pos[2]), float(pos[3]), float(pos[4]), float(pos[5]), pos[6])
   
   def _SPoll(self):
-    ret = int(self.interface.SPoll(2).rstrip('\n\r'))
+    stat = self.interface.SPoll(self.address)
+    #print stat
+    if stat == '':
+      return False
+    ret = int(stat.rstrip('\n\r'))
     return ORCASPollResult((ret & 1) == 1, (ret & 2) == 2, (ret & 4) == 4, (ret & 8) == 8, (ret & 16) == 16, (ret & 32) == 32, (ret & 64) == 64, (ret & 128) == 128)
 
-  def _OutputStatus(self):
-    self.interface.Output(2, 'OS')
-    pos = self.interface.Enter(2).split()
-    return pos
-
   def _Goto(self, p):
-   self.interface.Output(2, 'MA %1.2f %1.2f %1.2f %1.2f %1.2f %1.2f' % (p.rail, p.reach, p.height, p.bend, p.twist, p.grip))
+   self.interface.Output(self.address, 'MA %1.2f %1.2f %1.2f %1.2f %1.2f %1.2f' % (p.rail, p.reach, p.height, p.bend, p.twist, p.grip))
 
   def _IsBusy(self):
     ret = self._SPoll()
     return ret.busy or ret.auto
 
   def _SetSpeed(self, speed):
-    self.interface.Output(2, 'SS %d' % speed)
+    self.interface.Output(self.address, 'SS %d' % speed)
+
+  def _SetToolOffset(self, x, y, z):
+    self.interface.Output(self.address, 'TO %1.2f %1.2f %1.2f' % (a, b, c))
+
+  def _FL(self, float1, int1, int2):
+    self.interface.Output(self.address, 'FL %1.2f %d %d' % (float1, int1, int2))
+
+  def _SetForce(self, twist, grip):
+    self.interface.Output(self.address, 'SF %d %d' % (twist, grip))
+
+  def _ST(self, int1, int2):
+    self.interface.Output(self.address, 'ST %d %d' % (int1, int2))
+
+  def _SR(self, int1=4):
+    self.interface.Output(self.address, 'SR %d' % (int1))
+
+  def _WristLock(self):
+    self.interface.Output(self.address, 'WL')
+
+  def _WristUnlock(self):
+    self.interface.Output(self.address, 'WU')
+
+  def _SimpleStartup(self, side):
+    print self._SPoll()
+    ret = self._OutputStatus()
+    if ret[2] == 'MODE(TCH)':
+      self._DisableTeach()
+
+    while True:
+      if not self._SPoll().error:
+        break
+      print 'ORCA in error:'
+      errors = self._OutputError()
+      for e in errors:
+        print '%3d %s' % (e.errorno, e.description)
+        if e.errorno == 38:
+          self._ShutDown()
+          print 'shutdown 38' 
+
+    ret = self._OutputStatus()
+    if ret[1] == 'ARM(OFF)':
+      self._StartUp()
+
+    if ret[2] == 'MODE(---)':
+      sys.stdout.write('start locating')
+      if side == 'A':
+        self._LocateOnA()
+      else:
+        self._LocateOnB()
+      while True:
+        s = self._SPoll()
+        if s.error:
+          break
+        if not s.uninitialized:
+          break
+        time.sleep(1)
+        sys.stdout.write('.')
+        sys.stdout.flush()
+      if s.error:
+        print self._OutputError()
+        return 1
+    
+    return 0
+
 

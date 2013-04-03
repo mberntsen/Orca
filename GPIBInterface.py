@@ -78,5 +78,12 @@ class GPIBInterface:
     self.Command('SPOLL %d' % (addr))
     return self.connection.readline()
 
+  def FindListeners(self):
+    self.Command('FINDLSTN')
+
+  def ListListeners(self):
+    self.Command('LSTNLIST')
+    return self.connection.readlines()
+
 
 

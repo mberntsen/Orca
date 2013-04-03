@@ -33,35 +33,9 @@ def main():
   gpib.Command("EOL R,X,10")
   gpib.Command("TIMEOUT 2,.1")
   
-  G1203A = G1203AController.G1203AController(gpib)
+  G1203A = G1203AController.G1203AController(2, gpib)
   
-  ret = G1203A._OutputStatus()
-  if ret[2] == 'MODE(TCH)':
-    G1203A._DisableTeach()
-
-  while True:
-    if not G1203A._SPoll().error:
-      break
-    print 'ORCA in error:'
-    errors = G1203A._OutputError()
-    for e in errors:
-      print '%3d %s' % (e.errorno, e.description)
-      if e.errorno == 38:
-        G1203A._ShutDown()
-        print 'shutdown 38' 
-
-  ret = G1203A._OutputStatus()
-  if ret[1] == 'ARM(OFF)':
-    G1203A._StartUp()
-
-  if ret[2] == 'MODE(---)':
-    sys.stdout.write('start locating')
-    G1203A._LocateOnB()
-    while G1203A._SPoll().uninitialized:
-      time.sleep(1)
-      sys.stdout.write('.')
-      sys.stdout.flush()
-    print 'done'
+  G1203A._SimpleStartup()
 
   if options.pendant:
     G1203A._EnableTeach()
