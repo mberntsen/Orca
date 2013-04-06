@@ -21,7 +21,6 @@ ORCAForce = namedtuple('ORCAForce', 'twist grip')
 
 class G1203AController:
   """Base class for a Lightbox controller."""
-  GPIBADDRESS = 2
   
   def __init__(self, address, interface, **kwds):
     """Initializes the BaseController for Lightbox."""
@@ -129,10 +128,11 @@ class G1203AController:
     pos = self.interface.Enter(self.address).split()
     return ORCAPosition(float(pos[0]), float(pos[1]), float(pos[2]), float(pos[3]), float(pos[4]), float(pos[5]), pos[6])
   
-  def _RequestTeachPosition(self):
+  def _RequestTeachPosition(self, readback=True):
     self.interface.Output(self.address, 'RT')
-    pos = self.interface.Enter(self.address).split()
-    return ORCAPosition(float(pos[0]), float(pos[1]), float(pos[2]), float(pos[3]), float(pos[4]), float(pos[5]), '')
+    if readback:
+      pos = self.interface.Enter(self.address).split()
+      return ORCAPosition(float(pos[0]), float(pos[1]), float(pos[2]), float(pos[3]), float(pos[4]), float(pos[5]), '')
   
   def _RequestForce(self):
     self.interface.Output(self.address, 'RF')
@@ -162,11 +162,12 @@ class G1203AController:
   def _SetSpeed(self, speed):
     self.interface.Output(self.address, 'SS %d' % speed)
 
-  def _SetToolOffset(self, x, y, z):
+  def _SetToolOffset(self, a, b, c):
     self.interface.Output(self.address, 'TO %1.2f %1.2f %1.2f' % (a, b, c))
 
-  def _FL(self, float1, int1, int2):
-    self.interface.Output(self.address, 'FL %1.2f %d %d' % (float1, int1, int2))
+  def _FL(self, angle, bend, speed):
+    self.interface.Output(self.address, 'FL %1.2f %d %d' % (angle, bend, speed))
+    #self.interface.Output(self.address, 'FL')
 
   def _SetForce(self, twist, grip):
     self.interface.Output(self.address, 'SF %d %d' % (twist, grip))
@@ -184,8 +185,17 @@ class G1203AController:
     self.interface.Output(self.address, 'WU')
 
   def _SimpleStartup(self, side):
-    print self._SPoll()
+    #while True:
+    #  pos = self.interface.Enter(self.address)
+    #  print pos
+    #  if len(pos) == 0:
+    #    break
+    #self.interface.flush()
+    #time.sleep(0.5)
+  
+    #print self._SPoll()
     ret = self._OutputStatus()
+    #print ret
     if ret[2] == 'MODE(TCH)':
       self._DisableTeach()
 
@@ -193,12 +203,11 @@ class G1203AController:
       if not self._SPoll().error:
         break
       print 'ORCA in error:'
-      errors = self._OutputError()
-      for e in errors:
-        print '%3d %s' % (e.errorno, e.description)
-        if e.errorno == 38:
-          self._ShutDown()
-          print 'shutdown 38' 
+      e = self._OutputError()
+      print '%3d %s' % (e.errorno, e.description)
+      if e.errorno == 38:
+        self._ShutDown()
+        print 'shutdown 38' 
 
     ret = self._OutputStatus()
     if ret[1] == 'ARM(OFF)':
@@ -220,8 +229,10 @@ class G1203AController:
         sys.stdout.write('.')
         sys.stdout.flush()
       if s.error:
+        print 'error'
         print self._OutputError()
         return 1
+      print 'done'
     
     return 0
 

@@ -31,8 +31,16 @@ def main():
   gpib.Command("TIMEOUT 2,.1")
   
   G1203A = G1203AController.G1203AController(5, gpib)
-  
-  ret = G1203A._SimpleStartup(side=options.side)
+  #OrcaAchter = G1203AController.G1203AController(2, gpib)
+  #print G1203A._OutputError()
+
+  #pos = gpib.Enter(5)
+  #print pos
+  #s = G1203A._SPoll()
+  #print s
+  #exit(1)
+
+  ret = G1203A._SimpleStartup(side='A')
   if ret == 0:
     print 'init done'
   else:
@@ -74,6 +82,46 @@ def main():
         e = G1203A._OutputError()
         print 'error %d %s' % (e.errorno, e.description)
       time.sleep(.1)
+        
+  #p = G1203A._RequestActualPosition()
+  #print p
+  #G1203A._Goto(G1203AController.ORCAPosition(p.rail, p.reach, p.height, p.bend, 90, p.grip, ''))
+  #s = G1203A._SPoll()
+  #while True:
+  #  s = G1203A._SPoll()
+  #  #print s
+  #  if not s.busy:
+  #    break
+  #  time.sleep(0.25)
+    
+  s = G1203A._SPoll()
+  print s
+  #SA = ??
+
+  gpib.Output(5, 'SF 10 10') 
+  #G1203A._EnableTeach()
+  #1e is angle
+  #2e is bend (0 = keep, 1 = mirror)
+  #3e is speed
+  while True:
+    s = G1203A._SPoll()
+    print s
+    if s.error:
+      e = G1203A._OutputError()
+      print 'error %d %s' % (e.errorno, e.description)
+    #if not s.busy:
+    #  break
+    time.sleep(0.25)
+  #G1203A._Goto(G1203AController.ORCAPosition(p.rail, p.reach, p.height, p.bend, 90, p.grip, ''))
+  #while True:
+  #  s = G1203A._SPoll()
+  #  #print s
+  #  if not s.busy:
+  #    break
+  #  time.sleep(0.25)
+  
+  #flipangle (0 .. 135)
+  #flipwidth?
   
 if __name__ == '__main__':
   try:
