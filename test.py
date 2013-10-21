@@ -53,7 +53,7 @@ def main():
   G1203A._SetSpeed(100)
   p1 = G1203A._RequestPosition()
   print p1
-  p2 = G1203AController.ORCAPosition(-200, 30, 0, -90, 0, p1.grip, '')
+  p2 = G1203AController.ORCAPosition(-195, 30, 0, -90, -180, p1.grip, '')
   print p2
   G1203A._Goto(p2)
   while G1203A._IsBusy():
@@ -63,44 +63,82 @@ def main():
   #capture from camera at location 0
   cap = cv2.VideoCapture(0)
   #set the width and height, and UNSUCCESSFULLY set the exposure time
-  cap.set(3,640)
-  cap.set(4,480)
-  cap.set(15, 0.005)
-  print cap.get(15)
+  cap.set(3,1280)
+  cap.set(4,800)
+  #cap.set(5,20)
+  #cap.set(15, 0.1)
+  #for i in range(0, 16):
+  #  print '%d = %f' % (i, cap.get(i))
+
 
   #G1203A._DisableTeach()
 
-  threshold3 = 60
+  threshold3 = 20
   enabletouching = False
   cycle = 0
   par1 = 1500
   par2 = 5
-  scalex = 14.2 / 313
-  scaley = 16.1 / 353
+  scalex = 298.0 / 966
+  scaley = 210.5 / 684
+  scalexy = (scalex + scaley) / 2.0
   startrun = False
   doall = False
   finishall = False
 
 
-  print 'scalex = %1.5f, scaley = %1.5f' % (scalex, scaley)
+  print 'scalex = %1.5f, scaley = %1.5f, scalexy = %1.5f' % (scalex, scaley, scalexy)
 
   print cv2.__version__
-  bgvalue = np.zeros((480, 640), np.uint8)
   
-  h = 480
-  w = 640
+  h = 800
+  w = 1280
+  angles = 120
+
+  bgvalue = np.zeros((h, w), np.uint8)
+
+  cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+  #cv2.namedWindow("big", cv2.WINDOW_NORMAL)
+  #cv2.namedWindow("coin", cv2.WINDOW_NORMAL)
+  #cv2.namedWindow("coinpolar", cv2.WINDOW_NORMAL)
+  #cv2.namedWindow("hsgraph", cv2.WINDOW_NORMAL)
+  
+  #vis = np.zeros((h*2, w*2), np.uint8)
   vis = np.zeros((h, w*2), np.uint8)
+
   vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
-  vis2 = np.zeros((160, 640), np.uint8)
-  cv2.imshow("image2", vis2)   
+  coinpolar = np.zeros((150,angles), np.uint8)
+  coin = np.zeros((300, 300), np.uint8)
+  
+  gripmask = np.zeros((300,300), np.uint8)
+  pt1 = (30,115)
+  pt2 = (80,185)
+  cv2.rectangle(gripmask, pt1, pt2, 255, -1)
+  pt1 = (220,115)
+  pt2 = (270,185)
+  cv2.rectangle(gripmask, pt1, pt2, 255, -1)
+  pmx = np.empty((150,angles), dtype=np.float32);
+  pmy = np.empty((150,angles), dtype=np.float32);
+  for i in range(pmx.shape[0]):
+    for j in range(pmx.shape[1]):
+      alpha = -j * (math.pi / (angles/2))
+      pmx[i,j] = 150 + i * math.sin(alpha)
+      pmy[i,j] = 150 + i * math.cos(alpha)
+  gripmaskpolar = cv2.remap(gripmask, pmx, pmy, cv2.INTER_LINEAR)
+
+  edgemask = np.zeros((h, w), np.uint8)
+  cv2.rectangle(edgemask, (1,1), (w-2, h-2), 255)
+  
+  th3big = np.array([[255]*(w+300)]*(h+300), np.uint8)
+
   runmode = 0
-   
+  
   while True:  
     x0 = 0
     y0 = 0
   
     for i in range(0, 5):
       cap.grab()
+
     ret, img = cap.retrieve()
     #img3 = img.copy()#cv2.subtract(img, bgimg)
     hsv = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
@@ -108,98 +146,146 @@ def main():
     value2 = cv2.subtract(value, bgvalue)
     img3 = cv2.cvtColor(cv2.merge((hue, saturation, value2)), cv2.COLOR_HSV2BGR)
     et,th3 = cv2.threshold(value2,threshold3,255,cv2.THRESH_BINARY)
-    et,th4 = cv2.threshold(saturation,20,255,cv2.THRESH_BINARY)
-    m2 = cv2.medianBlur(th3,9)
-    m4 = m2.copy()
-    h2 = cv2.multiply(th4, m2)
-    h3 = cv2.multiply(hue, th4, scale=1.0/256)
+    th3big[150:h+150,150:w+150] = th3
     
-    img2 = m2.copy()
-    contours1,hierarchy1 = cv2.findContours(img2,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    img2 = th3.copy()
+    contours1,hierarchy1 = cv2.findContours(img2,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
     
     points = []
-    #gripmask = np.zeros((480, 640), np.uint8)
+    
+    hsgraph = np.zeros((256,256), np.uint8)
           
     i = 0
     fishes = []
     zeros = []
     for cnt in contours1:
-      gripmask = np.zeros((480, 640), np.uint8)
-      cntmask = np.zeros((480, 640), np.uint8)
-      cv2.fillConvexPoly(cntmask, cnt, 255)
-      cv2.rectangle(gripmask, (1,1), (638, 478), 255)
-      gripres = cv2.multiply(cntmask, gripmask)
-      overlap = cv2.countNonZero(gripres)
-      if overlap == 0:
-        area = cv2.contourArea(cnt)
-        length = cv2.arcLength(cnt, True)
-        if (area > 310) and (area < 650):
-          zeros.append(cnt)
-        if (area > 2000) and (length > 170) and (length < 240):
-          fishes.append(cnt)
-      else:
-        cv2.fillConvexPoly(img3, cnt, (0, 0, 255))
+      [x,y,z] = cnt.shape
+      if x > 40:
+        cntmask = np.zeros((h, w), np.uint8)
+        cv2.drawContours(cntmask, [cnt], 0, 255,3)
+        edgeres = cv2.multiply(cntmask, edgemask)
+        overlap = cv2.countNonZero(edgeres)
+        if overlap == 0:
+          ellipse = cv2.fitEllipse(cnt)
+          [[ex,ey],[ew,el],ea] = ellipse
+          if ew > 5:
+            roundness = el/ew
+            if roundness < 1.1:
+              d_avg = (ew + el) / 2
+              d_mm = d_avg * scalexy
+              #cv2.putText(img3,'d = %.1f mm = %.0f px' % (d_mm, 2 * d_avg), (int(ex)-30,int(ey)+10), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,0), thickness = 3)
+              if d_mm > 10 and d_mm < 14:
+                zeros.append([ex,ey,d_avg,cnt]) 
+              if d_mm > 20 and d_mm < 40:
+                fishes.append([ex,ey,d_avg,cnt])
+        else:
+          cv2.drawContours(img3, [cnt], 0, (0,0,255), 3)
           
     if len(fishes) == 0:
       runmode = 0
    
     if len(zeros) == 1:
-      M = cv2.moments(zeros[0])
-      x0 = M['m10']/M['m00']
-      y0 = M['m01']/M['m00']
-      cv2.circle(img3, (int(x0), int(y0)), 15, (255,255,255), 1, cv2.CV_AA)
+      zero = zeros[0]
+      zerox = zero[0]
+      zeroy = zero[1]
+      cv2.circle(img3, (int(zerox), int(zeroy)), int(zero[2]/2), (255,255,255), 3, cv2.CV_AA)
 
-      for cnt in fishes:
-        M = cv2.moments(cnt)
-        centroid_x = M['m10']/M['m00']
-        centroid_y = M['m01']/M['m00']
-        nx = -200 + ((centroid_x - x0) * scalex)
-        ny = 30 + ((y0 - centroid_y) * scaley)
-        if (ny > 40) or (ny < 25) or (nx > -185) or (nx < -215):
-          cv2.circle(img3, (int(centroid_x), int(centroid_y)), 36, (0, 0, 255), 1, cv2.CV_AA)
-          cv2.putText(img3,'%d, %d' % (int(nx), int(ny)), (int(centroid_x)-30,int(centroid_y)+10), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,0), thickness = 3)
-          continue
+      for fishe in fishes:
+        nx = -200 + ((fishe[0] - zerox) * scalex * 0.1)
+        ny = 27.5 + ((zeroy - fishe[1]) * scaley * 0.1)
 
-        cv2.circle(img3, (int(centroid_x), int(centroid_y)), 36, (255, 0, 0), 1, cv2.CV_AA)
+        if (fishe[1] > 40) or (fishe[1] < 25) or (fishe[0] > -185) or (fishe[0] < -215):
+          cv2.circle(img3, (int(fishe[0]), int(fishe[1])), int(fishe[2]/2), (0, 255, 0), 3, cv2.CV_AA)
+        x = int(fishe[0])-150
+        y = int(fishe[1])-150
+        coin = th3big[y+150:y+450,x+150:x+450]
+        coinpolar = cv2.remap(coin, pmx, pmy, cv2.INTER_LINEAR)
+        a3 = np.zeros((150,angles), np.uint8)
+        c = np.zeros(angles//2, np.uint16)
+        d1 = np.zeros(angles//2, np.uint16)
+        d2 = np.zeros(angles//2, np.uint16)
+
+        for i in range(0,angles//2):
+          a2 = np.roll(gripmaskpolar, i, axis=1)
+          a3 = np.multiply(coinpolar,a2)
+          c[i] = np.count_nonzero(a3)
+
+        u = 0
+        for i in range(0,angles):
+          u+=1
+          if c[i%(angles//2)] > 0: 
+            u = 0
+          d1[i%(angles//2)] = u
+        
+        u = 0
+        for i in range(angles-1,-1,-1):
+          u+=1
+          if c[i%(angles//2)] > 0:
+            u = 0
+          d2[i%(angles//2)] = u
+        
+        top_i = -1
+        top_d = 0
+        for i in range(0,angles//2):
+          if d1[i] > d2[i]:
+            d1[i] = d2[i]
+          if d1[i] > top_d:
+            top_d = d1[i]
+            top_i = i
+
+        if top_i >= 0:
+          angledeg = (360 / angles) * top_i
+          if angledeg > 90:
+            angledeg -= 180
+          anglerad = (math.pi / 180) * angledeg
+          #cv2.putText(img3,'a = %.2f' % (angledeg), (int(fishe[0])-30,int(fishe[1])+34), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,0), thickness = 3)
+          pm1 = rotatepoint(int(fishe[0]), int(fishe[1]), int(fishe[0]) - 50, int(fishe[1]), anglerad)
+          pm2 = rotatepoint(int(fishe[0]), int(fishe[1]), int(fishe[0]) + 50, int(fishe[1]), anglerad)  
+          cv2.line(img3, (pm1[0], pm1[1]), (pm2[0], pm2[1]), (255, 0, 255), 3, cv2.CV_AA)
           
-        for angledeg in [0,15,-15,30,-30,45,-45,60,-60,75,-75,90]:
-          angle = (angledeg * 3.141592654) / 180
-          pm1 = rotatepoint(centroid_x, centroid_y, centroid_x - 79, centroid_y - 23, angle)
-          pm2 = rotatepoint(centroid_x, centroid_y, centroid_x - 79 + 41, centroid_y - 23, angle)
-          pm3 = rotatepoint(centroid_x, centroid_y, centroid_x - 79 + 41, centroid_y + 23, angle)
-          pm4 = rotatepoint(centroid_x, centroid_y, centroid_x - 79, centroid_y + 23, angle)
-          cnt2 = np.array([pm1, pm2, pm3, pm4])
-          pm1 = rotatepoint(centroid_x, centroid_y, centroid_x + 79, centroid_y - 23, angle)
-          pm2 = rotatepoint(centroid_x, centroid_y, centroid_x + 79 - 41, centroid_y - 23, angle)
-          pm3 = rotatepoint(centroid_x, centroid_y, centroid_x + 79 - 41, centroid_y + 23, angle)
-          pm4 = rotatepoint(centroid_x, centroid_y, centroid_x + 79, centroid_y + 23, angle)
-          cnt3 = np.array([pm1, pm2, pm3, pm4])
-          gripmask = np.zeros((480, 640), np.uint8)
-          cv2.fillConvexPoly(gripmask, cnt2, 255)
-          cv2.fillConvexPoly(gripmask, cnt3, 255)
-          gripres = cv2.multiply(m2, gripmask)
-          overlap = cv2.countNonZero(gripres)
-          if overlap == 0:
-            break
+          x = int(fishe[0])-50
+          y = int(fishe[1])-50
+          coinh = hue[y:y+100,x:x+100]
+          coins = saturation[y:y+100,x:x+100]
+          coinv = value[y:y+100,x:x+100]
+          coinm = th3[y:y+100,x:x+100]
+          means = int(cv2.mean(coinh,coinm)[0])
+          meanh = int(cv2.mean(coins,coinm)[0])
+          meanv = int(cv2.mean(coinv,coinm)[0])
+          hsgraph[meanh,means] = 255
+          #cv2.putText(img3,'h(%d)s(%d)v(%d)' % (meanh, means, meanv), (int(fishe[0])-30,int(fishe[1])+60), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,0), thickness = 3)
+          cointype = -1
+          if means < 90:
+            if meanh < 70:
+              cointype = 1
+            if meanh >= 70:
+              if means >= 45:
+                cointype = 2
+              else:
+                cointype = 3
+          if means >= 90 and means < 138:
+            cointype = 4
+          if means > 138:
+            cointype = 5
+          cv2.putText(img3,'%d' % (cointype), (int(fishe[0])-5,int(fishe[1])-5), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,0), thickness = 3)
+          points.append([int(fishe[0]), int(fishe[1]), angledeg, cointype])
 
-        if overlap == 0:
-          points.append([centroid_x, centroid_y, angledeg])
-          pm1 = rotatepoint(centroid_x, centroid_y, centroid_x - 50, centroid_y, angle)
-          pm2 = rotatepoint(centroid_x, centroid_y, centroid_x + 50, centroid_y, angle)  
-          cv2.line(img3, (pm1[0], pm1[1]), (pm2[0], pm2[1]), (0, 255, 0), 5, cv2.CV_AA)
-          #cv2.circle(img3, (int(centroid_x), int(centroid_y)), 36, (255, 0, 0), 1, cv2.CV_AA)
-          #cv2.putText(img3,'%d' % overlap, (int(centroid_x)-30,int(centroid_y)+10), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,0,255), thickness = 3)
-
-    img4 = cv2.cvtColor(m4, cv2.COLOR_GRAY2BGR)
-    #img5 = cv2.cvtColor(value2, cv2.COLOR_GRAY2BGR)
+    img4 = cv2.cvtColor(th3, cv2.COLOR_GRAY2BGR)
     vis[:h, :w] = img4
     vis[:h, w:w*2] = img3
+    #vis[h:h*2, :w] = cv2.cvtColor(hue, cv2.COLOR_GRAY2BGR)
+    #vis[h:h*2, w:w*2] = cv2.cvtColor(saturation, cv2.COLOR_GRAY2BGR)
 
-    cv2.putText(vis,'fishes %d' % len(fishes), (5,12), cv2.FONT_HERSHEY_PLAIN, 1.0, (0,255,0), thickness = 1)
-    cv2.putText(vis,'zeros %d' % len(zeros), (5,24), cv2.FONT_HERSHEY_PLAIN, 1.0, (0,255,0), thickness = 1)
-    cv2.putText(vis,'runmode %d' % runmode, (5,36), cv2.FONT_HERSHEY_PLAIN, 1.0, (0,255,0), thickness = 1)
+    cv2.putText(vis,'fishes %d' % len(fishes), (5,24), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,255), thickness = 2)
+    cv2.putText(vis,'zeros %d' % len(zeros), (5,48), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,255), thickness = 2)
+    cv2.putText(vis,'points %d' % len(points), (5,72), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,255), thickness = 2)
+    cv2.putText(vis,'runmode %d' % runmode, (5,96), cv2.FONT_HERSHEY_PLAIN, 2.0, (0,255,255), thickness = 2)
 
     cv2.imshow("image", vis)
+    #cv2.imshow("coin", coin)
+    #cv2.imshow("coinpolar", coinpolar)
+    #cv2.imshow("hsgraph", hsgraph)
+    
     key = cv2.waitKey(1)
     if key == 27: #Esc
       break
@@ -211,11 +297,13 @@ def main():
         print "%7.2f %7.2f %5d" % (p[0], p[1], p[2])
     if key == ord('p'):
       G1203A._SetSpeed(10)
-      p3 = G1203AController.ORCAPosition(-200, 30, -23.9, -90, 0, 4, '')
+      p3 = G1203AController.ORCAPosition(-200, 27.5, -23.9+0.6, -90, -180, 4, '')
       G1203A._Goto(p3)
       while G1203A._IsBusy():
         time.sleep(0.25) 
+      time.sleep(0.5) 
       G1203A._ShutDown()
+      time.sleep(0.5) 
       break
         
     if key == ord('0'):
@@ -243,72 +331,15 @@ def main():
         runmode = 3
 
     if runmode > 0:
-      print "meanh means meanm  type"
            
       for p in points:
-        nx = -200 + ((p[0] - x0) * scalex)
-        ny = 30 + ((y0 - p[1]) * scaley)
-        #camera boven munt
-        p3 = G1203AController.ORCAPosition(nx, ny - 6.3, -14, -90, 0, 4, '')
-        G1203A._Goto(p3)
-        while G1203A._IsBusy():
-          time.sleep(0.25) 
-        #camera boven munt dichtbij
-        p3 = G1203AController.ORCAPosition(nx, ny - 6.3, -20, -90, 0, 4, '')
-        G1203A._Goto(p3)
-        while G1203A._IsBusy():
-          time.sleep(0.25) 
-            
-        for i in range(0, 5):
-          cap.grab()
-        ret, img = cap.retrieve()
-        hsv = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
-        [hue,saturation,value] = cv2.split(hsv)
-        et,th3 = cv2.threshold(value,threshold3,255,cv2.THRESH_BINARY)
-        et,th4 = cv2.threshold(saturation,100,255,cv2.THRESH_BINARY)
-        m2 = cv2.medianBlur(th3,9)
-        m3 = cv2.multiply(th4, m2)
-        roi1 = hue[160:320,260:420]
-        roi2 = saturation[160:320,260:420]
-        roi3 = img[160:320,260:420]
-        mask = m3[160:320,260:420]
-        meanh = int(cv2.mean(roi1,mask = mask)[0])
-        means = int(cv2.mean(roi2,mask = mask)[0])
-        meanm = int(cv2.mean(mask)[0])
-        vis2 = np.zeros((160, 640), np.uint8)
-        vis2 = cv2.cvtColor(vis2, cv2.COLOR_GRAY2BGR)
-        roi1bgr = cv2.cvtColor(roi1, cv2.COLOR_GRAY2BGR)
-        roi2bgr = cv2.cvtColor(roi2, cv2.COLOR_GRAY2BGR)
-        roi3bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-        vis2[:160, :160] = roi1bgr
-        vis2[:160, 160:320] = roi2bgr
-        vis2[:160, 320:480] = roi3bgr
-        vis2[:160, 480:640] = roi3
-        cv2.imshow("image2", vis2)
-            
-        cointype = 0
-        #color2 = [(128, 128, 128),(128, 128, 255),(255, 0, 0),(255, 0, 255),(0, 255, 0),(255, 255, 255)]#BGR
-        colors = ["unknown", "orange", "blue", "purple", "green", "white"]
-        #oranje          
-        if (meanh > 5) and (meanh < 40) and (means > 90) and (means < 256):
-          cointype = 1
-        #blauw         
-        if (meanh > 95) and (meanh < 120) and (means > 90) and (means < 256):
-          cointype = 2
-        #paars        
-        if (meanh > 130) and (meanh < 180) and (means > 90) and (means < 256):
-          cointype = 3
-        #groen          
-        if (meanh > 75) and (meanh < 95) and (means > 90) and (means < 256):
-          cointype = 4
-        #wit          
-        if (meanm > 0) and (meanm < 15):
-          cointype = 5
-        
-        print "%5d %5d %5d %10s" % (meanh, means, meanm, colors[cointype])
+        zerox = zero[0]
+        zeroy = zero[1]
+        nx = -200 + ((p[0] - zerox) * scalex * 0.1)
+        ny = 27.5 + ((zeroy - p[1]) * scaley * 0.1)
             
         #vlak boven munt open
-        p3 = G1203AController.ORCAPosition(nx, ny, -20, -90, p[2], 4, '')
+        p3 = G1203AController.ORCAPosition(nx, ny, -14, -90, p[2] - 180, 4, '')
         G1203A._Goto(p3)
         while G1203A._IsBusy():
           time.sleep(0.25) 
@@ -335,33 +366,32 @@ def main():
           break
 
         #naar munt open
-        p3 = G1203AController.ORCAPosition(nx, ny, -23.9, -90, p[2], 4, '')
+        p3 = G1203AController.ORCAPosition(nx, ny, -23.9+0.6, -90, p[2] - 180, 4, '')
         G1203A._Goto(p3)
         while G1203A._IsBusy():
           time.sleep(0.25) 
         #dicht
-        p3 = G1203AController.ORCAPosition(nx, ny, -23.9, -90, p[2], 2, '')
+        p3 = G1203AController.ORCAPosition(nx, ny, -23.9+0.6, -90, p[2] - 180, 2, '')
         G1203A._Goto(p3)
         while G1203A._IsBusy():
           time.sleep(0.25) 
         #omhoog
-        p3 = G1203AController.ORCAPosition(nx, ny, -14, -90, p[2], 2, '')
+        p3 = G1203AController.ORCAPosition(nx, ny, -14, -90, p[2] - 180, 2, '')
         G1203A._Goto(p3)
         while G1203A._IsBusy():
           time.sleep(0.25) 
         
+        cointype = p[3]
         #cointype  0,    1,    2,    3,    4,    5
-        xpos = [-134, -142, -150, -158, -166, -174]
+        xpos = [-130, -138, -146, -154, -162, -170]
         ypos = [  25,   25,   25,   25,   25,   25]
 
         p3 = G1203AController.ORCAPosition(xpos[cointype], ypos[cointype], -14, -90, 0, 2, '')
-        #print 'px = %5d, py = %5d, x = %5.2f, y = %5.2f' % (p[0], p[1], nx, ny)
         G1203A._Goto(p3)
         while G1203A._IsBusy():
           time.sleep(0.25) 
         #open
         p3 = G1203AController.ORCAPosition(xpos[cointype], ypos[cointype], -14, -90, 0, 4, '')
-        #print 'px = %5d, py = %5d, x = %5.2f, y = %5.2f' % (p[0], p[1], nx, ny)
         G1203A._Goto(p3)
         while G1203A._IsBusy():
           time.sleep(0.25) 
